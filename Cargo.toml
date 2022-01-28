@@ -1,0 +1,22 @@
+[package]
+name = "crabst"
+version = "0.1.0"
+edition = "2021"
+authors = ["orhanbalci@gmail.com <orhanbalci@gmail.com>"]
+description = "carate download statistics on your cli"
+repository = "https://github.com/orhanbalci/crabst.git"
+homepage = "https://github.com/crabst"
+keywords = ["crates.io","stats"]
+license = "MIT"
+readme = "README.md"
+categories = ["cli"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+crates_io_api = {git = "https://github.com/orhanbalci/crates_io_api" }
+getopts = "0.2"
+rasciigraph = "0.1.1"
+comfy-table = "5.0"
+itertools = "0.10"
+
