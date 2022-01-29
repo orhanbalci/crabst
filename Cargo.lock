@@ -97,7 +97,7 @@ dependencies = [
 [[package]]
 name = "crates_io_api"
 version = "0.7.4-alpha.0"
-source = "git+https://github.com/orhanbalci/crates_io_api#dc9644201c4d7affa4383d77a3edce6ef46bb1f7"
+source = "git+https://github.com/theduke/crates-io-api#7d70fe3c75ceba18235406d1628ca04908d1229c"
 dependencies = [
  "chrono",
  "futures",

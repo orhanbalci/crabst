@@ -1,7 +1,7 @@
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
-use crates_io_api::{Crate, ListOptions, Sort, SyncClient, VersionDownloads};
+use crates_io_api::{Crate, ListOptions, Sort, SyncClient};
 use getopts::Options;
 use itertools::Itertools;
 use rasciigraph::{plot, Config};
@@ -43,40 +43,40 @@ fn main() {
             .expect("can not get detailed information about crate from api");
         match crate_downloads {
             Ok(downloads) => {
+                let mut version_downloads = Vec::new();
+                for (key, group) in &downloads.version_downloads.iter().group_by(|&vd| vd.date) {
+                    let all_version_downloads = group.fold(0, |init, gvd| init + gvd.downloads);
+                    version_downloads.push((key, all_version_downloads as f64));
+                }
+                let dc = version_downloads.iter().map(|vd| vd.1).collect::<Vec<_>>();
+
+                let mut output_type: Option<String> = None;
                 if matches.opt_present("o") {
-                    let mut version_downloads = Vec::new();
-                    for (key, group) in &downloads.version_downloads.iter().group_by(|&vd| vd.date)
-                    {
-                        let all_version_downloads = group.fold(0, |init, gvd| init + gvd.downloads);
-                        version_downloads.push((key, all_version_downloads as f64));
-                    }
-                    let dc = version_downloads.iter().map(|vd| vd.1).collect::<Vec<_>>();
-                    let output_type = matches
-                        .opt_str("o")
-                        .expect("user did not supplied output argument");
-                    if output_type == "g" {
-                        println!(
-                            "{}",
-                            plot(
-                                dc,
-                                Config::default()
-                                    .with_offset(10)
-                                    .with_height(10)
-                                    .with_caption(format!(
-                                        "{} total downloads {}",
-                                        &crate_name, api_crate.crate_data.downloads
-                                    ))
-                            )
+                    output_type = matches.opt_str("o")
+                }
+
+                if output_type.unwrap_or_else(|| "t".to_string()) == *"g" {
+                    println!(
+                        "{}",
+                        plot(
+                            dc,
+                            Config::default()
+                                .with_offset(10)
+                                .with_height(10)
+                                .with_caption(format!(
+                                    "{} total downloads {}",
+                                    &crate_name, api_crate.crate_data.downloads
+                                ))
                         )
-                    } else {
-                        print_downloads_table(
-                            &version_downloads
-                                .iter()
-                                .map(|t| (format!("{}", t.0), t.1))
-                                .collect::<Vec<(String, f64)>>(),
-                            api_crate.crate_data.downloads,
-                        );
-                    }
+                    )
+                } else {
+                    print_downloads_table(
+                        &version_downloads
+                            .iter()
+                            .map(|t| (format!("{}", t.0), t.1))
+                            .collect::<Vec<(String, f64)>>(),
+                        api_crate.crate_data.downloads,
+                    );
                 }
             }
             Err(_) => println!("Failed to get downloads"),
@@ -90,7 +90,7 @@ fn main() {
             .expect("can not get client");
 
         let user = client
-            .users(&user_name)
+            .user(&user_name)
             .expect("can not get user information from crates.io");
 
         let crates = client
@@ -98,27 +98,27 @@ fn main() {
                 page: 1,
                 per_page: 100,
                 sort: Sort::Alphabetical,
-                user_id: Some(user.id.to_string()),
+                user_id: Some(user.id),
                 query: None,
             })
             .expect("can not get users crates");
 
+        let mut output_type: Option<String> = None;
         if matches.opt_present("o") {
-            let output_type = matches
-                .opt_str("o")
-                .expect("user did not supplied output argument");
-            if output_type == "t" {
-                print_crates_table(&crates.crates);
-            } else {
-                todo!("implement graph output")
-            }
+            output_type = matches.opt_str("o")
+        }
+
+        if output_type.unwrap_or_else(|| "t".to_string()) == *"g" {
+            todo!("implement graph output")
+        } else {
+            print_crates_table(&crates.crates);
         }
     } else {
         print_usage(&program, opts);
     }
 }
 
-fn print_downloads_table(downloads: &Vec<(String, f64)>, total: u64) {
+fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -141,7 +141,7 @@ fn print_downloads_table(downloads: &Vec<(String, f64)>, total: u64) {
     println!("{table}");
 }
 
-fn print_crates_table(crates: &Vec<Crate>) {
+fn print_crates_table(crates: &[Crate]) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
