@@ -85,7 +85,7 @@ checksum = "5827cebf4670468b8772dd191856768aedcb1b0278a04f989f7766351917b9dc"
 
 [[package]]
 name = "crabst"
-version = "0.1.0"
+version = "0.1.1-alpha.0"
 dependencies = [
  "comfy-table",
  "crates_io_api",
