@@ -96,8 +96,9 @@ dependencies = [
 
 [[package]]
 name = "crates_io_api"
-version = "0.7.4-alpha.0"
-source = "git+https://github.com/theduke/crates-io-api#7d70fe3c75ceba18235406d1628ca04908d1229c"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86f8072e3f4581325ee6c8e3c900099b303924a9c592ab4d23bb87ee5bdc6f7b"
 dependencies = [
  "chrono",
  "futures",

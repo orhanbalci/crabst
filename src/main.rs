@@ -1,7 +1,7 @@
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
-use crates_io_api::{Crate, ListOptions, Sort, SyncClient};
+use crates_io_api::{Crate, CratesQueryBuilder, Sort, SyncClient};
 use getopts::Options;
 use itertools::Itertools;
 use rasciigraph::{plot, Config};
@@ -94,13 +94,13 @@ fn main() {
             .expect("can not get user information from crates.io");
 
         let crates = client
-            .crates(ListOptions {
-                page: 1,
-                per_page: 100,
-                sort: Sort::Alphabetical,
-                user_id: Some(user.id),
-                query: None,
-            })
+            .crates(
+                CratesQueryBuilder::new()
+                    .page_size(100)
+                    .sort(Sort::Alphabetical)
+                    .user_id(user.id)
+                    .build(),
+            )
             .expect("can not get users crates");
 
         let mut output_type: Option<String> = None;

@@ -14,7 +14,7 @@ categories = ["cli"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crates_io_api = {git = "https://github.com/theduke/crates-io-api" }
+crates_io_api = "0.8.0"
 getopts = "0.2"
 rasciigraph = "0.1.1"
 comfy-table = "5.0"
