@@ -1,10 +1,16 @@
+use chrono::Datelike;
+use chrono::NaiveDate;
+use chrono::Utc;
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
 use crates_io_api::{Crate, CratesQueryBuilder, Sort, SyncClient};
 use getopts::Options;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use itertools::Itertools;
 use rasciigraph::{plot, Config};
+use std::collections::HashMap;
 use std::env;
 
 fn main() {
@@ -28,6 +34,9 @@ fn main() {
         print_usage(&program, opts);
         return;
     }
+
+    let today = Utc::now();
+    let today_naive = NaiveDate::from_ymd(today.year(), today.month(), today.day());
 
     if matches.opt_present("c") {
         let crate_name = matches
@@ -103,6 +112,32 @@ fn main() {
             )
             .expect("can not get users crates");
 
+        let mut crate_daily_downloads: HashMap<String, u64> = HashMap::new();
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.blue} {msg}")
+                .unwrap()
+                .tick_strings(&[
+                    "▹▹▹▹▹",
+                    "▸▹▹▹▹",
+                    "▹▸▹▹▹",
+                    "▹▹▸▹▹",
+                    "▹▹▹▸▹",
+                    "▹▹▹▹▸",
+                    "▪▪▪▪▪",
+                ]),
+        );
+        pb.set_message("Fetching crates infos...");
+        crates.crates.iter().for_each(|c| {
+            pb.set_message(format!("Fetching {} info...", c.name));
+            pb.tick();
+            crate_daily_downloads.insert(
+                c.name.clone(),
+                get_crate_downloads(&client, &c.name, &today_naive),
+            );
+        });
+        pb.finish_with_message("Finished gathering crate info!");
+
         let mut output_type: Option<String> = None;
         if matches.opt_present("o") {
             output_type = matches.opt_str("o")
@@ -111,7 +146,7 @@ fn main() {
         if output_type.unwrap_or_else(|| "t".to_string()) == *"g" {
             todo!("implement graph output")
         } else {
-            print_crates_table(&crates.crates);
+            print_crates_table(&crates.crates, &crate_daily_downloads);
         }
     } else {
         print_usage(&program, opts);
@@ -141,16 +176,18 @@ fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
     println!("{table}");
 }
 
-fn print_crates_table(crates: &[Crate]) {
+fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, u64>) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
         .apply_modifier(UTF8_ROUND_CORNERS)
-        .set_header(vec!["Crate Name", "Download Count"]);
+        .set_header(vec!["Crate Name", "Download Count", "Daily Downloads"]);
     let table_rows = crates.iter().map(|c| {
         Row::from(vec![
             Cell::new(c.name.clone()),
             Cell::new(c.downloads.to_string()).set_alignment(CellAlignment::Right),
+            Cell::new(*daily_downloads.get(&c.name).unwrap_or(&0))
+                .set_alignment(CellAlignment::Right),
         ])
     });
     for row in table_rows {
@@ -161,6 +198,7 @@ fn print_crates_table(crates: &[Crate]) {
         Cell::new("Total"),
         Cell::new(crates.iter().fold(0, |init, c| init + c.downloads))
             .set_alignment(CellAlignment::Right),
+        Cell::new(daily_downloads.values().sum::<u64>()).set_alignment(CellAlignment::Right),
     ]));
 
     println!("{table}");
@@ -169,4 +207,16 @@ fn print_crates_table(crates: &[Crate]) {
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
     print!("{}", opts.usage(&brief));
+}
+
+fn get_crate_downloads(client: &SyncClient, crate_name: &str, date: &NaiveDate) -> u64 {
+    let crate_downloads = client.crate_downloads(crate_name);
+    match crate_downloads {
+        Ok(downloads) => downloads
+            .version_downloads
+            .iter()
+            .filter(|vd| vd.date == *date)
+            .fold(0, |init, crate_download| init + crate_download.downloads),
+        _ => 0,
+    }
 }
