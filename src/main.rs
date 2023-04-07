@@ -4,7 +4,8 @@ use chrono::Utc;
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
-use crates_io_api::{Crate, CratesQueryBuilder, Sort, SyncClient};
+use crates_io_api::{AsyncClient, Crate, CratesQueryBuilder, Sort};
+use futures::{stream, StreamExt};
 use getopts::Options;
 use indicatif::ProgressBar;
 use indicatif::ProgressStyle;
@@ -12,8 +13,12 @@ use itertools::Itertools;
 use rasciigraph::{plot, Config};
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
+use tokio::io::{self, AsyncWriteExt};
+use tokio::sync::Mutex;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
 
@@ -31,7 +36,7 @@ fn main() {
     };
 
     if matches.opt_present("h") {
-        print_usage(&program, opts);
+        print_usage(&program, opts).await;
         return;
     }
 
@@ -43,12 +48,14 @@ fn main() {
             .opt_str("c")
             .expect("user did not supplied crate argument");
 
-        let client = SyncClient::new("stats agent", std::time::Duration::from_millis(2000))
+        let client = AsyncClient::new("stats agent", std::time::Duration::from_millis(2000))
             .expect("can not get client");
 
-        let crate_downloads = client.crate_downloads(&crate_name);
+        let crate_downloads = client.crate_downloads(&crate_name).await;
+        // .expect("can not get crate downloads");
         let api_crate = client
             .get_crate(&crate_name)
+            .await
             .expect("can not get detailed information about crate from api");
         match crate_downloads {
             Ok(downloads) => {
@@ -85,7 +92,8 @@ fn main() {
                             .map(|t| (format!("{}", t.0), t.1))
                             .collect::<Vec<(String, f64)>>(),
                         api_crate.crate_data.downloads,
-                    );
+                    )
+                    .await;
                 }
             }
             Err(_) => println!("Failed to get downloads"),
@@ -95,11 +103,12 @@ fn main() {
             .opt_str("u")
             .expect("user did not supply user argument");
 
-        let client = SyncClient::new("stats agent", std::time::Duration::from_millis(2000))
+        let client = AsyncClient::new("stats agent", std::time::Duration::from_millis(2000))
             .expect("can not get client");
 
         let user = client
             .user(&user_name)
+            .await
             .expect("can not get user information from crates.io");
 
         let crates = client
@@ -110,9 +119,11 @@ fn main() {
                     .user_id(user.id)
                     .build(),
             )
+            .await
             .expect("can not get users crates");
 
-        let mut crate_daily_downloads: HashMap<String, u64> = HashMap::new();
+        let crate_daily_downloads: Arc<Mutex<HashMap<String, u64>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let pb = ProgressBar::new_spinner();
         pb.set_style(
             ProgressStyle::with_template("{spinner:.blue} {msg}")
@@ -128,14 +139,24 @@ fn main() {
                 ]),
         );
         pb.set_message("Fetching crates infos...");
-        crates.crates.iter().for_each(|c| {
-            pb.set_message(format!("Fetching {} info...", c.name));
-            pb.tick();
-            crate_daily_downloads.insert(
-                c.name.clone(),
-                get_crate_downloads(&client, &c.name, &today_naive),
-            );
-        });
+        let download_futures = stream::iter(crates.crates.clone())
+            .map(|crate_info| {
+                let client = client.clone();
+                let daily_downloads = crate_daily_downloads.clone();
+                let inner_pb = pb.clone();
+                tokio::spawn(async move {
+                    let download_count =
+                        get_crate_downloads(&client, &crate_info.name, &today_naive).await;
+                    daily_downloads
+                        .lock()
+                        .await
+                        .insert(crate_info.name.clone(), download_count);
+                    inner_pb.set_message(format!("Fetching {} info...", crate_info.name));
+                    inner_pb.tick();
+                })
+            })
+            .buffer_unordered(50);
+        download_futures.collect::<Vec<_>>().await;
         pb.finish_with_message("Finished gathering crate info!");
 
         let mut output_type: Option<String> = None;
@@ -146,14 +167,14 @@ fn main() {
         if output_type.unwrap_or_else(|| "t".to_string()) == *"g" {
             todo!("implement graph output")
         } else {
-            print_crates_table(&crates.crates, &crate_daily_downloads);
+            print_crates_table(&crates.crates, &crate_daily_downloads.lock().await.clone()).await;
         }
     } else {
-        print_usage(&program, opts);
+        print_usage(&program, opts).await;
     }
 }
 
-fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
+async fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -173,10 +194,12 @@ fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
         Cell::new("Total"),
         Cell::new(total).set_alignment(CellAlignment::Right),
     ]);
-    println!("{table}");
+    let mut stdout = io::stdout();
+    let _ = stdout.write_all(format!("{table}").as_bytes()).await;
+    let _ = stdout.flush().await;
 }
 
-fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, u64>) {
+async fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, u64>) {
     let mut table = Table::new();
     table
         .load_preset(UTF8_FULL)
@@ -201,16 +224,23 @@ fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, u64>) 
         Cell::new(daily_downloads.values().sum::<u64>()).set_alignment(CellAlignment::Right),
     ]));
 
-    println!("{table}");
+    let mut stdout = io::stdout();
+    let _ = stdout.write_all(format!("{table}").as_bytes()).await;
+    let _ = stdout.flush().await;
 }
 
-fn print_usage(program: &str, opts: Options) {
+async fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
-    print!("{}", opts.usage(&brief));
+    let mut stdout = io::stdout();
+    let _ = stdout
+        .write_all(opts.usage(&brief).to_string().as_bytes())
+        .await;
+
+    let _ = stdout.flush().await;
 }
 
-fn get_crate_downloads(client: &SyncClient, crate_name: &str, date: &NaiveDate) -> u64 {
-    let crate_downloads = client.crate_downloads(crate_name);
+async fn get_crate_downloads(client: &AsyncClient, crate_name: &str, date: &NaiveDate) -> u64 {
+    let crate_downloads = client.crate_downloads(crate_name).await;
     match crate_downloads {
         Ok(downloads) => downloads
             .version_downloads
