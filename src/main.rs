@@ -41,7 +41,8 @@ async fn main() {
     }
 
     let today = Utc::now();
-    let today_naive = NaiveDate::from_ymd(today.year(), today.month(), today.day());
+    let today_naive = NaiveDate::from_ymd_opt(today.year(), today.month(), today.day())
+        .expect("Invalid date value");
 
     if matches.opt_present("c") {
         let crate_name = matches
@@ -103,7 +104,7 @@ async fn main() {
             .opt_str("u")
             .expect("user did not supply user argument");
 
-        let client = AsyncClient::new("stats agent", std::time::Duration::from_millis(2000))
+        let client = AsyncClient::new("crabst stats agent", std::time::Duration::from_millis(100))
             .expect("can not get client");
 
         let user = client
@@ -155,7 +156,7 @@ async fn main() {
                     inner_pb.tick();
                 })
             })
-            .buffer_unordered(50);
+            .buffer_unordered(3);
         download_futures.collect::<Vec<_>>().await;
         pb.finish_with_message("Finished gathering crate info!");
 
@@ -195,8 +196,7 @@ async fn print_downloads_table(downloads: &[(String, f64)], total: u64) {
         Cell::new(total).set_alignment(CellAlignment::Right),
     ]);
     let mut stdout = io::stdout();
-    let _ = stdout.write_all(format!("{table}").as_bytes()).await;
-    let _ = stdout.flush().await;
+    let _ = stdout.write_all(table.to_string().as_bytes()).await;
 }
 
 async fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, u64>) {
@@ -225,8 +225,7 @@ async fn print_crates_table(crates: &[Crate], daily_downloads: &HashMap<String, 
     ]));
 
     let mut stdout = io::stdout();
-    let _ = stdout.write_all(format!("{table}").as_bytes()).await;
-    let _ = stdout.flush().await;
+    let _ = stdout.write_all(table.to_string().as_bytes()).await;
 }
 
 async fn print_usage(program: &str, opts: Options) {
@@ -235,8 +234,6 @@ async fn print_usage(program: &str, opts: Options) {
     let _ = stdout
         .write_all(opts.usage(&brief).to_string().as_bytes())
         .await;
-
-    let _ = stdout.flush().await;
 }
 
 async fn get_crate_downloads(client: &AsyncClient, crate_name: &str, date: &NaiveDate) -> u64 {
