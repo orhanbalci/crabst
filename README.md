@@ -8,6 +8,7 @@ cli application to visualize crate download metrics.
 crabst
 Options:
     -c CRATE            get single crate download statistics
+    -d CRATE DEPENDENTS get crate dependents inpormation
     -u USER             get user download statistics
     -o OUTPUT           output format g: graph t: table
     -h, --help          print this help menu
