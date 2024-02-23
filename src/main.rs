@@ -4,6 +4,7 @@ use chrono::Utc;
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
+use crates_io_api::ReverseDependencies;
 use crates_io_api::{AsyncClient, Crate, CratesQueryBuilder, Sort};
 use futures::{stream, StreamExt};
 use getopts::Options;
@@ -14,6 +15,7 @@ use rasciigraph::{plot, Config};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{self, AsyncWriteExt};
 use tokio::sync::Mutex;
 
@@ -24,6 +26,12 @@ async fn main() {
 
     let mut opts = Options::new();
     opts.optopt("c", "", "get single crate download statistics", "CRATE");
+    opts.optopt(
+        "d",
+        "",
+        "get crate dependents inpormation",
+        "CRATE DEPENDENTS",
+    );
     opts.optopt("u", "", "get user download statistics", "USER");
     opts.optopt("o", "", "output format g: graph t: table", "OUTPUT");
     opts.optflag("h", "help", "print this help menu");
@@ -49,7 +57,7 @@ async fn main() {
             .opt_str("c")
             .expect("user did not supplied crate argument");
 
-        let client = AsyncClient::new("stats agent", std::time::Duration::from_millis(2000))
+        let client = AsyncClient::new("stats agent", std::time::Duration::from_millis(100))
             .expect("can not get client");
 
         let crate_downloads = client.crate_downloads(&crate_name).await;
@@ -170,6 +178,37 @@ async fn main() {
         } else {
             print_crates_table(&crates.crates, &crate_daily_downloads.lock().await.clone()).await;
         }
+    } else if matches.opt_present("d") {
+        let crate_name = matches
+            .opt_str("d")
+            .expect("user did not supplied crate argument");
+
+        let client = AsyncClient::new("crabst stats agent", std::time::Duration::from_millis(100))
+            .expect("can not get client");
+
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.blue} {msg}")
+                .unwrap()
+                .tick_strings(&[
+                    "▹▹▹▹▹",
+                    "▸▹▹▹▹",
+                    "▹▸▹▹▹",
+                    "▹▹▸▹▹",
+                    "▹▹▹▸▹",
+                    "▹▹▹▹▸",
+                    "▪▪▪▪▪",
+                ]),
+        );
+        pb.set_message(format!("Fetching crate {} dependent infos...", &crate_name));
+        pb.enable_steady_tick(Duration::from_millis(500));
+        let dependents = client
+            .crate_reverse_dependencies(&crate_name)
+            .await
+            .expect("can not retrieve crate dependents");
+        pb.finish_with_message(format!("fetched {} crate dependents", &crate_name));
+
+        print_crate_dependents(&dependents).await;
     } else {
         print_usage(&program, opts).await;
     }
@@ -246,4 +285,30 @@ async fn get_crate_downloads(client: &AsyncClient, crate_name: &str, date: &Naiv
             .fold(0, |init, crate_download| init + crate_download.downloads),
         _ => 0,
     }
+}
+
+async fn print_crate_dependents(dependents: &ReverseDependencies) {
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_header(vec!["Crate Name", "Download Count"]);
+    let table_rows = dependents.dependencies.iter().map(|rd| {
+        Row::from(vec![
+            Cell::new(rd.crate_version.crate_name.clone()),
+            Cell::new(rd.dependency.downloads).set_alignment(CellAlignment::Right),
+        ])
+    });
+    for row in table_rows {
+        table.add_row(row);
+    }
+
+    // table.add_row(Row::from(vec![
+    //     Cell::new("Total"),
+    //     Cell::new(dependents.meta.total).set_alignment(CellAlignment::Right),
+    //     // Cell::new(daily_downloads.values().sum::<u64>()).set_alignment(CellAlignment::Right),
+    // ]));
+
+    let mut stdout = io::stdout();
+    let _ = stdout.write_all(table.to_string().as_bytes()).await;
 }
