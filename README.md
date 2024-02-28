@@ -5,12 +5,15 @@ cli application to visualize crate download metrics.
 ## 🔧 Usage
 
 ```
-crabst
+Usage: crabst [options]
+
 Options:
-    -c CRATE            get single crate download statistics
-    -d CRATE DEPENDENTS get crate dependents inpormation
-    -u USER             get user download statistics
-    -o OUTPUT           output format g: graph t: table
+    -c, --crate CRATE   get single crate download statistics
+    -d, --dependents CRATE DEPENDENTS
+                        get crate dependents inpormation
+    -u, --user USER     get user download statistics
+    -o, --output OUTPUT output format g: graph t: table
+    -l, --last LAST     show last n days output
     -h, --help          print this help menu
 ```
 
