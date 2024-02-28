@@ -1,13 +1,10 @@
-use chrono::Datelike;
 use chrono::NaiveDate;
-use chrono::Utc;
 use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Cell, CellAlignment, Row, Table,
 };
 use crates_io_api::ReverseDependencies;
 use crates_io_api::{AsyncClient, Crate, CratesQueryBuilder, Sort};
 use dotago::Dotago;
-use futures::SinkExt;
 use futures::{stream, StreamExt};
 use getopts::Matches;
 use getopts::Options;
@@ -362,18 +359,6 @@ async fn print_usage(program: &str, opts: Options) {
     let _ = stdout
         .write_all(opts.usage(&brief).to_string().as_bytes())
         .await;
-}
-
-async fn get_crate_downloads(client: &AsyncClient, crate_name: &str, date: &NaiveDate) -> u64 {
-    let crate_downloads = client.crate_downloads(crate_name).await;
-    match crate_downloads {
-        Ok(downloads) => downloads
-            .version_downloads
-            .iter()
-            .filter(|vd| vd.date == *date)
-            .fold(0, |init, crate_download| init + crate_download.downloads),
-        _ => 0,
-    }
 }
 
 async fn get_crate_downloads_multi(
